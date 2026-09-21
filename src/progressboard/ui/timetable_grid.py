@@ -40,6 +40,20 @@ class TimetableGrid(ttk.Frame):
                 )
                 combo.grid(row=period, column=col, padx=4, pady=3)
 
+        clear_row = self._settings.periods_per_day + 1
+        ttk.Label(self, text="요일 지우기", foreground="gray").grid(
+            row=clear_row, column=0, padx=6, pady=(8, 4), sticky="e"
+        )
+        for col, day in enumerate(DAYS, start=1):
+            ttk.Button(
+                self, text="지우기", width=6, command=lambda d=day: self._clear_day(d)
+            ).grid(row=clear_row, column=col, padx=4, pady=(8, 4))
+
+    def _clear_day(self, day: str) -> None:
+        for (var_day, _period), var in self._vars.items():
+            if var_day == day:
+                var.set("")
+
     def reload(self, timetable: dict) -> None:
         for child in self.winfo_children():
             child.destroy()

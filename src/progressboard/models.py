@@ -54,13 +54,14 @@ class Lesson:
 
 @dataclass
 class AppState:
-    """앱 전체 저장 상태: 설정, 기본 시간표, 주차별 예외 시간표, 진도 목록, 완료 기록."""
+    """앱 전체 저장 상태: 설정, 기본 시간표, 주차별 예외 시간표, 진도 목록, 슬롯별 진행 상태."""
 
     settings: Settings = field(default_factory=Settings)
     timetable: dict = field(default_factory=dict)  # day -> {period(str): class_name}
     week_exceptions: dict = field(default_factory=dict)  # "주차번호" -> timetable과 같은 구조
     lessons: list[Lesson] = field(default_factory=list)
-    completed: list = field(default_factory=list)  # "날짜|교시|반" 형태로 완료 처리된 수업 기록
+    # "날짜|교시|반" -> "done"(완료) / "short"(시간 부족) / "skipped"(진행 못함)
+    slot_status: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -68,7 +69,7 @@ class AppState:
             "timetable": self.timetable,
             "week_exceptions": self.week_exceptions,
             "lessons": [lesson.to_dict() for lesson in self.lessons],
-            "completed": list(self.completed),
+            "slot_status": self.slot_status,
         }
 
     @staticmethod
@@ -79,5 +80,5 @@ class AppState:
             timetable=data.get("timetable") or {},
             week_exceptions=dict(data.get("week_exceptions") or {}),
             lessons=[Lesson.from_dict(item) for item in data.get("lessons", [])],
-            completed=list(data.get("completed") or []),
+            slot_status=dict(data.get("slot_status") or {}),
         )

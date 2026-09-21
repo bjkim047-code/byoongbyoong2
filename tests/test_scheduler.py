@@ -4,7 +4,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from progressboard.scheduler import build_weeks, current_week_index, monday_of, parse_date
+from progressboard.scheduler import (
+    build_weeks,
+    current_week_index,
+    monday_of,
+    parse_date,
+    week_number_for_date,
+)
 
 
 def test_parse_date_valid_and_invalid():
@@ -62,3 +68,19 @@ def test_current_week_index_after_semester_returns_last_week():
 
 def test_current_week_index_empty_weeks_returns_negative_one():
     assert current_week_index([], date.today()) == -1
+
+
+def test_week_number_for_date_first_week():
+    assert week_number_for_date("2026-09-21", date(2026, 9, 21)) == 1
+    assert week_number_for_date("2026-09-21", date(2026, 9, 25)) == 1
+
+
+def test_week_number_for_date_later_weeks():
+    assert week_number_for_date("2026-09-21", date(2026, 9, 28)) == 2
+    assert week_number_for_date("2026-09-21", date(2026, 10, 5)) == 3
+
+
+def test_week_number_for_date_snaps_start_to_monday():
+    # 시작일이 월요일이 아니어도(수요일) 그 주의 월요일을 1주차 시작으로 본다.
+    assert week_number_for_date("2026-09-23", date(2026, 9, 21)) == 1
+    assert week_number_for_date("2026-09-23", date(2026, 9, 28)) == 2

@@ -80,11 +80,9 @@ class WeekExceptionDialog(tk.Toplevel):
         self._placeholder.pack(anchor="w", pady=20)
 
         btns = ttk.Frame(right)
-        btns.pack(anchor="w", pady=(8, 0))
-        ttk.Button(btns, text="이 주 예외로 저장", command=self._save_current).pack(
-            side="left", padx=(0, 4)
-        )
-        ttk.Button(btns, text="예외 해제(기본 시간표 사용)", command=self._clear_current).pack(
+        btns.pack(pady=(8, 0))
+        ttk.Button(btns, text="저장", command=self._save_current).pack(side="left", padx=4)
+        ttk.Button(btns, text="기본 시간표 적용", command=self._clear_current).pack(
             side="left", padx=4
         )
         ttk.Button(self, text="닫기", command=self.destroy).pack(pady=(0, 10))

@@ -50,6 +50,14 @@ def build_weeks(semester_start: str, num_weeks: int) -> list[Week]:
     return weeks
 
 
+def week_number_for_date(semester_start: str, target: date) -> int:
+    """1주차 시작일 기준으로, 이 날짜가 몇 주차에 해당하는지(1부터)."""
+
+    start = monday_of(parse_date(semester_start) or target)
+    delta_days = (target - start).days
+    return delta_days // 7 + 1
+
+
 def current_week_index(weeks: list[Week], today: Optional[date] = None) -> int:
     """오늘이 포함된 주차의 인덱스. 없으면 가장 가까운 미래 주, 그마저 없으면 마지막 주."""
 

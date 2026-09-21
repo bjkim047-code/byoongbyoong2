@@ -6,21 +6,25 @@ import tkinter as tk
 from datetime import date
 from tkinter import messagebox, ttk
 
-from .. import progress, storage
+from .. import autostart, progress, storage
 from ..models import DAYS, DAY_LABELS
+from ..progress import STATUS_DONE, STATUS_ICONS, STATUS_SHORT, STATUS_SKIPPED
 from ..scheduler import Week, build_weeks, current_week_index
 from .lessons_dialog import LessonsDialog
 from .settings_dialog import SettingsDialog
+from .status_dialog import StatusChoiceDialog
 from .timetable_dialog import TimetableDialog
 from .week_exception_dialog import WeekExceptionDialog
 
 WINDOW_WIDTH = 900
 WINDOW_HEIGHT = 560
+CELL_ROW_MINSIZE = 60  # 진도 제목이 1줄이든 2줄이든 칸 크기가 흔들리지 않도록 고정
 
 _TODAY_BG = "#eaf6ea"
 _DUE_BG = "#fff3d6"
 _DUE_BORDER = "#d9932a"
 _DONE_FG = "#6b6b6b"
+_SKIPPED_FG = "#b23b3b"
 _NO_CLASS_BG = "#f3f3f3"
 
 
@@ -36,6 +40,7 @@ class MainWindow(tk.Tk):
         self.minsize(720, 420)
 
         self._topmost = tk.BooleanVar(value=False)
+        self._autostart = tk.BooleanVar(value=autostart.is_enabled())
 
         self._build_menu()
         self._build_layout()
@@ -66,6 +71,14 @@ class MainWindow(tk.Tk):
             header, text="항상 위", variable=self._topmost, command=self._apply_topmost
         ).pack(side="right")
 
+        ttk.Checkbutton(
+            header,
+            text="윈도우 시작 시 자동 실행",
+            variable=self._autostart,
+            command=self._apply_autostart,
+            state="normal" if autostart.is_supported() else "disabled",
+        ).pack(side="right", padx=(0, 10))
+
         body = ttk.Frame(self)
         body.pack(fill="both", expand=True, padx=10, pady=(0, 10))
 
@@ -91,19 +104,15 @@ class MainWindow(tk.Tk):
         self._grid_frame = ttk.Frame(right)
         self._grid_frame.pack(fill="both", expand=True)
 
-        hint = ttk.Label(
-            right,
-            text="칸을 클릭하면 그 수업을 완료 처리합니다. 표시되는 차시는 실제 완료 여부와"
-            " 상관없이 시간표를 기준으로 계산된 예상 진도입니다. 주황색 칸은 이미 지났는데"
-            " 아직 완료 확인을 하지 않은 수업입니다.",
-            foreground="gray",
-            wraplength=560,
-            justify="left",
-        )
-        hint.pack(anchor="w", pady=(8, 0))
-
     def _apply_topmost(self) -> None:
         self.attributes("-topmost", self._topmost.get())
+
+    def _apply_autostart(self) -> None:
+        try:
+            autostart.set_enabled(self._autostart.get())
+        except OSError as exc:
+            messagebox.showerror("자동 실행 설정 실패", str(exc), parent=self)
+            self._autostart.set(not self._autostart.get())
 
     # -- data ---------------------------------------------------------------
     def _save(self) -> None:
@@ -184,8 +193,11 @@ class MainWindow(tk.Tk):
             for col, day in enumerate(DAYS, start=1):
                 self._build_cell(day, period, week)
 
-        for row in range(settings.periods_per_day + 1):
-            self._grid_frame.grid_rowconfigure(row, weight=1)
+        self._grid_frame.grid_rowconfigure(0, weight=0)
+        for row in range(1, settings.periods_per_day + 1):
+            self._grid_frame.grid_rowconfigure(
+                row, weight=1, uniform="period_row", minsize=CELL_ROW_MINSIZE
+            )
 
     def _build_cell(self, day: str, period: int, week: Week) -> None:
         settings = self.state.settings
@@ -202,8 +214,8 @@ class MainWindow(tk.Tk):
             return
 
         lesson = progress.expected_lesson(self.state, week.number, day, period, class_name)
-        completed = progress.is_completed_slot(self.state, slot_date, period, class_name)
-        due = (not completed) and slot_date <= today
+        status = progress.slot_status(self.state, slot_date, period, class_name)
+        due = status is None and slot_date <= today
 
         bg = _DUE_BG if due else "white"
         border = _DUE_BORDER if due else "#cccccc"
@@ -217,8 +229,14 @@ class MainWindow(tk.Tk):
         class_label.pack(fill="x", padx=4, pady=(3, 0))
 
         if lesson is not None and lesson.title:
-            content_text = ("✓ " if completed else "") + lesson.title
-            content_fg = _DONE_FG if completed else "black"
+            icon = STATUS_ICONS.get(status)
+            content_text = f"{icon} {lesson.title}" if icon else lesson.title
+            if status in (STATUS_DONE, STATUS_SHORT):
+                content_fg = _DONE_FG
+            elif status == STATUS_SKIPPED:
+                content_fg = _SKIPPED_FG
+            else:
+                content_fg = "black"
         else:
             content_text = "(배정된 진도 없음)"
             content_fg = "#888888"
@@ -229,38 +247,30 @@ class MainWindow(tk.Tk):
             bg=bg,
             fg=content_fg,
             wraplength=110,
-            justify="left",
-            anchor="w",
+            justify="center",
+            anchor="center",
         )
-        content_label.pack(anchor="w", padx=4, pady=(0, 3), fill="x")
+        content_label.pack(padx=4, pady=(0, 3), fill="both", expand=True)
 
-        handler = lambda _e=None, d=slot_date, p=period, c=class_name: self._on_cell_click(d, p, c)
+        handler = lambda _e=None, d=slot_date, p=period, c=class_name, wn=week.number: self._on_cell_click(
+            d, p, c, wn
+        )
         for widget in (cell, class_label, content_label):
             widget.bind("<Button-1>", handler)
             widget.configure(cursor="hand2")
 
-    def _on_cell_click(self, slot_date: date, period: int, class_name: str) -> None:
-        already_done = progress.is_completed_slot(self.state, slot_date, period, class_name)
+    def _on_cell_click(self, slot_date: date, period: int, class_name: str, week_number: int) -> None:
+        day = DAYS[slot_date.weekday()]
+        current_status = progress.slot_status(self.state, slot_date, period, class_name)
+        lesson = progress.expected_lesson(self.state, week_number, day, period, class_name)
+        title = lesson.title if lesson else None
 
-        if already_done:
-            if not messagebox.askyesno(
-                "완료 취소",
-                f"{class_name} 반 수업의 완료 표시를 취소할까요?",
-                parent=self,
-            ):
-                return
-            progress.unmark_completed(self.state, slot_date, period, class_name)
-        else:
-            if not messagebox.askyesno(
-                "완료 확인",
-                f"{class_name} 반 수업을 완료 처리할까요?",
-                parent=self,
-            ):
-                return
-            progress.mark_completed(self.state, slot_date, period, class_name)
+        def on_choose(status) -> None:
+            progress.set_slot_status(self.state, slot_date, period, class_name, status)
+            self._save()
+            self._refresh_grid()
 
-        self._save()
-        self._refresh_grid()
+        StatusChoiceDialog(self, class_name, title, current_status, on_choose)
 
     # -- dialogs ----------------------------------------------------------
     def open_settings_dialog(self) -> None:

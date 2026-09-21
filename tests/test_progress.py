@@ -6,13 +6,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from progressboard.models import AppState, Lesson
 from progressboard.progress import (
+    STATUS_DONE,
+    STATUS_SHORT,
+    STATUS_SKIPPED,
     class_weekly_slots,
     effective_timetable,
     expected_lesson,
     expected_lesson_index,
-    is_completed_slot,
-    mark_completed,
-    unmark_completed,
+    set_slot_status,
+    slot_status,
 )
 
 BASE_TIMETABLE = {
@@ -24,8 +26,9 @@ BASE_TIMETABLE = {
 }
 
 
-def make_state(total_lessons: int = 20) -> AppState:
+def make_state(total_lessons: int = 20, semester_start: str = "2026-09-21") -> AppState:
     state = AppState()
+    state.settings.semester_start = semester_start  # 2026-09-21은 월요일
     state.timetable = BASE_TIMETABLE
     state.lessons = [Lesson(title=f"{i}차시") for i in range(1, total_lessons + 1)]
     return state
@@ -85,32 +88,54 @@ def test_exception_week_with_fewer_occurrences_shifts_later_weeks_back():
     assert expected_lesson_index(state, 3, "tue", 1, "2-1") == 4
 
 
-def test_is_completed_slot_toggles_with_mark_and_unmark():
+def test_slot_status_toggles_with_set():
     state = make_state()
-    d = date(2026, 9, 21)
-    assert not is_completed_slot(state, d, 1, "2-1")
-    assert mark_completed(state, d, 1, "2-1") is True
-    assert is_completed_slot(state, d, 1, "2-1")
-    assert unmark_completed(state, d, 1, "2-1") is True
-    assert not is_completed_slot(state, d, 1, "2-1")
+    d = date(2026, 9, 21)  # 1주차 월요일
+    assert slot_status(state, d, 1, "2-1") is None
+    set_slot_status(state, d, 1, "2-1", STATUS_DONE)
+    assert slot_status(state, d, 1, "2-1") == STATUS_DONE
+    set_slot_status(state, d, 1, "2-1", None)
+    assert slot_status(state, d, 1, "2-1") is None
 
 
-def test_mark_completed_is_idempotent_for_same_slot():
+def test_done_and_short_do_not_affect_expected_lesson_numbering():
     state = make_state()
-    d = date(2026, 9, 21)
-    assert mark_completed(state, d, 1, "2-1") is True
-    assert mark_completed(state, d, 1, "2-1") is False
-    assert state.completed.count(f"{d.isoformat()}|1|2-1") == 1
-
-
-def test_unmark_completed_does_nothing_if_not_completed():
-    assert unmark_completed(make_state(), date(2026, 9, 21), 1, "2-1") is False
-
-
-def test_completion_does_not_change_expected_lesson_for_other_slots():
-    state = make_state()
-    d = date(2026, 9, 21)
-    mark_completed(state, d, 1, "2-1")
-    # 완료 처리해도 시간표 기반 예상 차시 번호 자체는 바뀌지 않는다.
+    d = date(2026, 9, 21)  # 1주차 월요일, 2-1
+    set_slot_status(state, d, 1, "2-1", STATUS_DONE)
     assert expected_lesson_index(state, 1, "mon", 1, "2-1") == 0
     assert expected_lesson_index(state, 1, "tue", 1, "2-1") == 1
+
+    set_slot_status(state, d, 1, "2-1", STATUS_SHORT)
+    assert expected_lesson_index(state, 1, "mon", 1, "2-1") == 0
+    assert expected_lesson_index(state, 1, "tue", 1, "2-1") == 1
+
+
+def test_skipped_shifts_later_slots_back_for_that_class_only():
+    state = make_state()
+    mon_week1 = date(2026, 9, 21)  # 2-1 1주차 월요일 (0번째)
+    set_slot_status(state, mon_week1, 1, "2-1", STATUS_SKIPPED)
+
+    # 못 나간 슬롯 자신은 원래 예정됐던 번호를 그대로 보여준다.
+    assert expected_lesson_index(state, 1, "mon", 1, "2-1") == 0
+    # 그 다음 슬롯(화요일)부터는 하나씩 밀린다: 원래 1이었을 것이 0으로.
+    assert expected_lesson_index(state, 1, "tue", 1, "2-1") == 0
+    # 그 다음 주 월요일도 계속 하나 밀린 상태(원래 2 -> 1).
+    assert expected_lesson_index(state, 2, "mon", 1, "2-1") == 1
+
+    # 다른 반(2-2)은 전혀 영향받지 않는다.
+    assert expected_lesson_index(state, 1, "mon", 3, "2-2") == 0
+
+
+def test_skipped_uses_correct_lesson_content_after_shift():
+    state = make_state()
+    mon_week1 = date(2026, 9, 21)
+    set_slot_status(state, mon_week1, 1, "2-1", STATUS_SKIPPED)
+    assert expected_lesson(state, 1, "tue", 1, "2-1").title == "1차시"
+
+
+def test_multiple_skips_accumulate_the_shift():
+    state = make_state()
+    set_slot_status(state, date(2026, 9, 21), 1, "2-1", STATUS_SKIPPED)  # 1주차 월
+    set_slot_status(state, date(2026, 9, 22), 1, "2-1", STATUS_SKIPPED)  # 1주차 화
+    # 2주차 월요일은 원래 2였을 것이 두 번 밀려 0.
+    assert expected_lesson_index(state, 2, "mon", 1, "2-1") == 0
