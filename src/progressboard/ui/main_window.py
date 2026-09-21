@@ -1,4 +1,4 @@
-"""주차별 시간표에 반별 진도를 표시하는 메인 창."""
+"""주차별 시간표에 반별 예상 진도를 표시하는 메인 창."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from ..scheduler import Week, build_weeks, current_week_index
 from .lessons_dialog import LessonsDialog
 from .settings_dialog import SettingsDialog
 from .timetable_dialog import TimetableDialog
+from .week_exception_dialog import WeekExceptionDialog
 
 WINDOW_WIDTH = 900
 WINDOW_HEIGHT = 560
@@ -48,6 +49,7 @@ class MainWindow(tk.Tk):
         settings_menu = tk.Menu(menubar, tearoff=False)
         settings_menu.add_command(label="기본 설정", command=self.open_settings_dialog)
         settings_menu.add_command(label="기본 시간표 설정", command=self.open_timetable_dialog)
+        settings_menu.add_command(label="예외 시간표 설정", command=self.open_week_exception_dialog)
         settings_menu.add_command(label="진도 설정", command=self.open_lessons_dialog)
         menubar.add_cascade(label="시간표 설정", menu=settings_menu)
         self.configure(menu=menubar)
@@ -91,8 +93,9 @@ class MainWindow(tk.Tk):
 
         hint = ttk.Label(
             right,
-            text="칸을 클릭하면 그 수업을 완료 처리하고 다음 진도로 넘어갑니다. "
-            "주황색 칸은 이미 지나서 완료 확인이 필요한 수업입니다.",
+            text="칸을 클릭하면 그 수업을 완료 처리합니다. 표시되는 차시는 실제 완료 여부와"
+            " 상관없이 시간표를 기준으로 계산된 예상 진도입니다. 주황색 칸은 이미 지났는데"
+            " 아직 완료 확인을 하지 않은 수업입니다.",
             foreground="gray",
             wraplength=560,
             justify="left",
@@ -171,8 +174,8 @@ class MainWindow(tk.Tk):
                 header,
                 text=f"{DAY_LABELS[day]} ({day_date.strftime('%m/%d')})",
                 bg=header["bg"],
-                font=("", 10, "bold"),
-            ).pack(padx=4, pady=4)
+                font=("", 12),
+            ).pack(padx=6, pady=7)
 
         for period in range(1, settings.periods_per_day + 1):
             ttk.Label(self._grid_frame, text=f"{period}교시", foreground="gray").grid(
@@ -186,7 +189,8 @@ class MainWindow(tk.Tk):
 
     def _build_cell(self, day: str, period: int, week: Week) -> None:
         settings = self.state.settings
-        class_name = settings.classes and self.state.timetable.get(day, {}).get(str(period))
+        timetable = progress.effective_timetable(self.state, week.number)
+        class_name = settings.classes and timetable.get(day, {}).get(str(period))
         slot_date = week.day_date(day)
         today = date.today()
 
@@ -197,10 +201,9 @@ class MainWindow(tk.Tk):
             cell.grid(row=period, column=DAYS.index(day) + 1, sticky="nsew", padx=2, pady=2)
             return
 
-        lesson = progress.current_lesson(self.state, class_name)
-        finished = progress.is_finished(self.state, class_name)
+        lesson = progress.expected_lesson(self.state, week.number, day, period, class_name)
         completed = progress.is_completed_slot(self.state, slot_date, period, class_name)
-        due = (not completed) and slot_date <= today and not finished
+        due = (not completed) and slot_date <= today
 
         bg = _DUE_BG if due else "white"
         border = _DUE_BORDER if due else "#cccccc"
@@ -208,17 +211,16 @@ class MainWindow(tk.Tk):
         cell = tk.Frame(self._grid_frame, bg=bg, highlightbackground=border, highlightthickness=1)
         cell.grid(row=period, column=DAYS.index(day) + 1, sticky="nsew", padx=2, pady=2)
 
-        class_label = tk.Label(cell, text=class_name, bg=bg, font=("", 8), fg="#555555")
-        class_label.pack(anchor="w", padx=4, pady=(3, 0))
+        class_label = tk.Label(
+            cell, text=class_name, bg=bg, font=("", 8), fg="#555555", anchor="center", justify="center"
+        )
+        class_label.pack(fill="x", padx=4, pady=(3, 0))
 
-        if finished:
-            content_text = "진도 완료"
-            content_fg = "#888888"
-        elif lesson is not None and lesson.title:
-            content_text = lesson.title
+        if lesson is not None and lesson.title:
+            content_text = ("✓ " if completed else "") + lesson.title
             content_fg = _DONE_FG if completed else "black"
         else:
-            content_text = "(진도 미입력)"
+            content_text = "(배정된 진도 없음)"
             content_fg = "#888888"
 
         content_label = tk.Label(
@@ -232,29 +234,26 @@ class MainWindow(tk.Tk):
         )
         content_label.pack(anchor="w", padx=4, pady=(0, 3), fill="x")
 
-        if not finished:
-            handler = lambda _e=None, d=slot_date, p=period, c=class_name: self._on_cell_click(d, p, c)
-            for widget in (cell, class_label, content_label):
-                widget.bind("<Button-1>", handler)
-                widget.configure(cursor="hand2")
+        handler = lambda _e=None, d=slot_date, p=period, c=class_name: self._on_cell_click(d, p, c)
+        for widget in (cell, class_label, content_label):
+            widget.bind("<Button-1>", handler)
+            widget.configure(cursor="hand2")
 
     def _on_cell_click(self, slot_date: date, period: int, class_name: str) -> None:
         already_done = progress.is_completed_slot(self.state, slot_date, period, class_name)
-        lesson = progress.current_lesson(self.state, class_name)
-        title = lesson.title if lesson and lesson.title else "(제목 없는 차시)"
 
         if already_done:
             if not messagebox.askyesno(
                 "완료 취소",
-                f"{class_name} 반의 완료 처리를 취소하고 이전 진도로 되돌릴까요?",
+                f"{class_name} 반 수업의 완료 표시를 취소할까요?",
                 parent=self,
             ):
                 return
             progress.unmark_completed(self.state, slot_date, period, class_name)
         else:
             if not messagebox.askyesno(
-                "진도 완료 확인",
-                f"{class_name} 반 '{title}' 수업을 완료 처리하고 다음 진도로 넘어갈까요?",
+                "완료 확인",
+                f"{class_name} 반 수업을 완료 처리할까요?",
                 parent=self,
             ):
                 return
@@ -279,6 +278,25 @@ class MainWindow(tk.Tk):
             self._refresh_grid()
 
         TimetableDialog(self, self.state.settings, self.state.timetable, on_save)
+
+    def open_week_exception_dialog(self) -> None:
+        def on_save(week_number: int, timetable) -> None:
+            key = str(week_number)
+            if timetable is None:
+                self.state.week_exceptions.pop(key, None)
+            else:
+                self.state.week_exceptions[key] = timetable
+            self._save()
+            self._refresh_grid()
+
+        WeekExceptionDialog(
+            self,
+            self.state.settings,
+            self.weeks,
+            self.state.timetable,
+            self.state.week_exceptions,
+            on_save,
+        )
 
     def open_lessons_dialog(self) -> None:
         def on_save(lessons) -> None:
