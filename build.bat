@@ -11,7 +11,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-python -m PyInstaller --onefile --windowed --name progressboard run.py
+python -m PyInstaller --onefile --windowed --name progressboard --paths src run.py
 if errorlevel 1 (
     echo.
     echo [ERROR] Build failed. See the messages above for details.

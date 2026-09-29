@@ -84,7 +84,7 @@ PYTHONPATH=src python -m progressboard
 
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed --name progressboard run.py
+pyinstaller --onefile --windowed --name progressboard --paths src run.py
 ```
 
 `dist/progressboard.exe`가 생성되며, 바탕화면에 두고 더블클릭해서 실행할 수
