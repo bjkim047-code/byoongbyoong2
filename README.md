@@ -77,6 +77,11 @@ PYTHONPATH=src python -m progressboard
 
 ### Windows용 실행 파일(.exe) 만들기
 
+**가장 쉬운 방법**: 압축을 푼 폴더에서 `build.bat`을 더블클릭하세요. 필요한
+패키지 설치부터 빌드까지 자동으로 진행됩니다.
+
+또는 직접 명령어로:
+
 ```bash
 pip install pyinstaller
 pyinstaller --onefile --windowed --name progressboard run.py
