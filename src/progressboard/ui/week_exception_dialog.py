@@ -25,11 +25,10 @@ class WeekExceptionDialog(tk.Toplevel):
         base_timetable: dict,
         week_exceptions: dict,
         on_save: Callable[[int, Optional[dict]], None],
+        initial_week_number: Optional[int] = None,
     ):
         super().__init__(parent)
         self.title("예외 시간표 설정")
-        self.geometry("640x460")
-        self.minsize(600, 420)
         self.transient(parent)
         self.grab_set()
 
@@ -51,7 +50,7 @@ class WeekExceptionDialog(tk.Toplevel):
         body = ttk.Frame(self, padding=(10, 0, 10, 10))
         body.pack(fill="both", expand=True)
 
-        left = ttk.Frame(body, width=170)
+        left = ttk.Frame(body, width=210)
         left.pack(side="left", fill="y")
         left.pack_propagate(False)
 
@@ -63,9 +62,9 @@ class WeekExceptionDialog(tk.Toplevel):
         self._tree.heading("week", text="주")
         self._tree.heading("period", text="기간")
         self._tree.heading("exc", text="예외")
-        self._tree.column("week", width=32, anchor="center")
+        self._tree.column("week", width=36, anchor="center")
         self._tree.column("period", width=100, anchor="center")
-        self._tree.column("exc", width=24, anchor="center")
+        self._tree.column("exc", width=50, anchor="center")
         self._tree.pack(fill="y", expand=True, pady=(2, 0))
         self._tree.bind("<<TreeviewSelect>>", self._on_week_selected)
 
@@ -88,7 +87,26 @@ class WeekExceptionDialog(tk.Toplevel):
         ttk.Button(self, text="닫기", command=self.destroy).pack(pady=(0, 10))
 
         self._refresh_week_list()
+
+        target_week_number = initial_week_number
+        if target_week_number is None or not any(w.number == target_week_number for w in self._weeks):
+            target_week_number = self._weeks[0].number if self._weeks else None
+        if target_week_number is not None:
+            self._tree.selection_set(str(target_week_number))
+            self._tree.see(str(target_week_number))
+            self._on_week_selected()
+
+        self._fit_to_content()
         self.bind("<Escape>", lambda _e: self.destroy())
+
+    def _fit_to_content(self) -> None:
+        """모든 요일 칸이 잘리지 않도록, 실제 필요한 크기에 맞춰 창 크기를 정한다."""
+
+        self.update_idletasks()
+        width = max(self.winfo_reqwidth() + 20, 640)
+        height = max(self.winfo_reqheight() + 20, 420)
+        self.geometry(f"{width}x{height}")
+        self.minsize(width, height)
 
     # -- week list --------------------------------------------------------
     def _refresh_week_list(self) -> None:

@@ -299,6 +299,11 @@ class MainWindow(tk.Tk):
             self._save()
             self._refresh_grid()
 
+        current_week_number = (
+            self.weeks[self.selected_week_index].number
+            if self.weeks and 0 <= self.selected_week_index < len(self.weeks)
+            else None
+        )
         WeekExceptionDialog(
             self,
             self.state.settings,
@@ -306,6 +311,7 @@ class MainWindow(tk.Tk):
             self.state.timetable,
             self.state.week_exceptions,
             on_save,
+            initial_week_number=current_week_number,
         )
 
     def open_lessons_dialog(self) -> None:
