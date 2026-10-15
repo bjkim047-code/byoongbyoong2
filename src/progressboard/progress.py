@@ -135,3 +135,73 @@ def set_slot_status(
         state.slot_status.pop(key, None)
     else:
         state.slot_status[key] = status
+
+
+def next_occurrence(
+    state: AppState, slot_date: date, period: int, class_name: str
+) -> Optional[tuple[int, str, int]]:
+    """이 수업 바로 다음에 이 반을 만나는 (주차, 요일, 교시). 없으면 None."""
+
+    day_index = slot_date.weekday()
+    if day_index >= len(DAYS):
+        return None
+    day = DAYS[day_index]
+    week_number = week_number_for_date(state.settings.semester_start, slot_date)
+
+    current_slots = class_weekly_slots(effective_timetable(state, week_number), class_name)
+    try:
+        idx = current_slots.index((day, period))
+    except ValueError:
+        return None
+
+    if idx + 1 < len(current_slots):
+        next_day, next_period = current_slots[idx + 1]
+        return week_number, next_day, next_period
+
+    last_week = max(state.settings.num_weeks, week_number)
+    for later_week in range(week_number + 1, last_week + 1):
+        later_slots = class_weekly_slots(effective_timetable(state, later_week), class_name)
+        if later_slots:
+            next_day, next_period = later_slots[0]
+            return later_week, next_day, next_period
+    return None
+
+
+def slot_note(state: AppState, slot_date: date, period: int, class_name: str) -> Optional[str]:
+    return state.slot_notes.get(slot_key(slot_date, period, class_name))
+
+
+def set_slot_note(
+    state: AppState, slot_date: date, period: int, class_name: str, note: Optional[str]
+) -> None:
+    """'시간 부족' 수업에 보충할 내용 메모를 남긴다. note가 비어 있으면 메모를 지운다."""
+
+    key = slot_key(slot_date, period, class_name)
+    note = (note or "").strip()
+    if note:
+        state.slot_notes[key] = note
+    else:
+        state.slot_notes.pop(key, None)
+
+
+def clear_note(state: AppState, original_slot_key: str) -> None:
+    """원래 메모가 달린 슬롯의 key로 메모를 지운다(다음 수업 칸에서 '처리됨' 클릭 시 사용)."""
+
+    state.slot_notes.pop(original_slot_key, None)
+
+
+def pending_note_for_slot(
+    state: AppState, week_number: int, day: str, period: int, class_name: str
+) -> Optional[tuple[str, str]]:
+    """이 (주차, 요일, 교시) 칸에 표시해야 할 보충 메모가 있으면 (원래 slot_key, 메모)."""
+
+    for key, note in state.slot_notes.items():
+        parsed = _parse_slot_key(key)
+        if parsed is None:
+            continue
+        orig_date, orig_period, orig_class = parsed
+        if orig_class != class_name:
+            continue
+        if next_occurrence(state, orig_date, orig_period, class_name) == (week_number, day, period):
+            return key, note
+    return None

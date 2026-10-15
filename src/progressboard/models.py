@@ -62,6 +62,8 @@ class AppState:
     lessons: list[Lesson] = field(default_factory=list)
     # "날짜|교시|반" -> "done"(완료) / "short"(시간 부족) / "skipped"(진행 못함)
     slot_status: dict = field(default_factory=dict)
+    # "날짜|교시|반"(시간 부족 처리된 원래 수업) -> 보충할 내용 메모
+    slot_notes: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -70,6 +72,7 @@ class AppState:
             "week_exceptions": self.week_exceptions,
             "lessons": [lesson.to_dict() for lesson in self.lessons],
             "slot_status": self.slot_status,
+            "slot_notes": self.slot_notes,
         }
 
     @staticmethod
@@ -81,4 +84,5 @@ class AppState:
             week_exceptions=dict(data.get("week_exceptions") or {}),
             lessons=[Lesson.from_dict(item) for item in data.get("lessons", [])],
             slot_status=dict(data.get("slot_status") or {}),
+            slot_notes=dict(data.get("slot_notes") or {}),
         )

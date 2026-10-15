@@ -18,13 +18,14 @@ from .week_exception_dialog import WeekExceptionDialog
 
 WINDOW_WIDTH = 900
 WINDOW_HEIGHT = 560
-CELL_ROW_MINSIZE = 60  # 진도 제목이 1줄이든 2줄이든 칸 크기가 흔들리지 않도록 고정
+CELL_ROW_MINSIZE = 72  # 진도 제목/보충 메모 줄 수가 달라도 칸 크기가 흔들리지 않도록 고정
 
 _TODAY_BG = "#eaf6ea"
 _DUE_BG = "#fff3d6"
 _DUE_BORDER = "#d9932a"
 _DONE_FG = "#6b6b6b"
 _SKIPPED_FG = "#b23b3b"
+_NOTE_FG = "#8a5b00"
 _NO_CLASS_BG = "#f3f3f3"
 
 
@@ -259,18 +260,47 @@ class MainWindow(tk.Tk):
             widget.bind("<Button-1>", handler)
             widget.configure(cursor="hand2")
 
+        pending = progress.pending_note_for_slot(self.state, week.number, day, period, class_name)
+        if pending is not None:
+            note_key, note_text = pending
+            note_label = tk.Label(
+                cell,
+                text=f"📝 {note_text}",
+                bg=bg,
+                fg=_NOTE_FG,
+                font=("", 8),
+                wraplength=110,
+                justify="center",
+                anchor="center",
+            )
+            note_label.pack(padx=4, pady=(0, 3), fill="x")
+            note_label.configure(cursor="hand2")
+            note_label.bind(
+                "<Button-1>", lambda _e=None, key=note_key: self._on_note_click(key)
+            )
+
+    def _on_note_click(self, note_key: str) -> None:
+        progress.clear_note(self.state, note_key)
+        self._save()
+        self._refresh_grid()
+
     def _on_cell_click(self, slot_date: date, period: int, class_name: str, week_number: int) -> None:
         day = DAYS[slot_date.weekday()]
         current_status = progress.slot_status(self.state, slot_date, period, class_name)
+        current_note = progress.slot_note(self.state, slot_date, period, class_name)
         lesson = progress.expected_lesson(self.state, week_number, day, period, class_name)
         title = lesson.title if lesson else None
 
-        def on_choose(status) -> None:
+        def on_choose(status, note) -> None:
             progress.set_slot_status(self.state, slot_date, period, class_name, status)
+            if status == STATUS_SHORT:
+                progress.set_slot_note(self.state, slot_date, period, class_name, note)
+            else:
+                progress.set_slot_note(self.state, slot_date, period, class_name, None)
             self._save()
             self._refresh_grid()
 
-        StatusChoiceDialog(self, class_name, title, current_status, on_choose)
+        StatusChoiceDialog(self, class_name, title, current_status, current_note, on_choose)
 
     # -- dialogs ----------------------------------------------------------
     def open_settings_dialog(self) -> None:

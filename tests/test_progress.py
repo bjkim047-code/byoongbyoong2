@@ -10,10 +10,15 @@ from progressboard.progress import (
     STATUS_SHORT,
     STATUS_SKIPPED,
     class_weekly_slots,
+    clear_note,
     effective_timetable,
     expected_lesson,
     expected_lesson_index,
+    next_occurrence,
+    pending_note_for_slot,
+    set_slot_note,
     set_slot_status,
+    slot_note,
     slot_status,
 )
 
@@ -139,3 +144,64 @@ def test_multiple_skips_accumulate_the_shift():
     set_slot_status(state, date(2026, 9, 22), 1, "2-1", STATUS_SKIPPED)  # 1주차 화
     # 2주차 월요일은 원래 2였을 것이 두 번 밀려 0.
     assert expected_lesson_index(state, 2, "mon", 1, "2-1") == 0
+
+
+def test_next_occurrence_within_same_week():
+    state = make_state()
+    assert next_occurrence(state, date(2026, 9, 21), 1, "2-1") == (1, "tue", 1)  # 월 -> 화
+
+
+def test_next_occurrence_crosses_into_next_week():
+    state = make_state()
+    # 화요일(그 주 마지막 슬롯)의 다음은 다음 주 월요일.
+    assert next_occurrence(state, date(2026, 9, 22), 1, "2-1") == (2, "mon", 1)
+
+
+def test_next_occurrence_none_when_class_not_scheduled():
+    state = make_state()
+    assert next_occurrence(state, date(2026, 9, 21), 1, "2-9") is None
+
+
+def test_next_occurrence_none_past_configured_weeks():
+    state = make_state()
+    state.settings.num_weeks = 1  # 딱 1주차까지만 존재
+    assert next_occurrence(state, date(2026, 9, 22), 1, "2-1") is None
+
+
+def test_slot_note_set_and_clear_round_trip():
+    state = make_state()
+    d = date(2026, 9, 21)
+    assert slot_note(state, d, 1, "2-1") is None
+    set_slot_note(state, d, 1, "2-1", "  2쪽 문제 더 풀기  ")
+    assert slot_note(state, d, 1, "2-1") == "2쪽 문제 더 풀기"
+    set_slot_note(state, d, 1, "2-1", "")  # 빈 문자열이면 지워짐
+    assert slot_note(state, d, 1, "2-1") is None
+
+
+def test_pending_note_appears_only_on_next_occurrence():
+    state = make_state()
+    mon = date(2026, 9, 21)
+    set_slot_status(state, mon, 1, "2-1", STATUS_SHORT)
+    set_slot_note(state, mon, 1, "2-1", "2쪽 문제 더 풀기")
+
+    pending = pending_note_for_slot(state, 1, "tue", 1, "2-1")
+    assert pending is not None
+    key, note = pending
+    assert note == "2쪽 문제 더 풀기"
+
+    # 그 다음다음 슬롯(2주차 월요일)에는 안 뜬다.
+    assert pending_note_for_slot(state, 2, "mon", 1, "2-1") is None
+    # 다른 반에는 당연히 안 뜬다.
+    assert pending_note_for_slot(state, 1, "mon", 3, "2-2") is None
+
+
+def test_clear_note_removes_pending_display():
+    state = make_state()
+    mon = date(2026, 9, 21)
+    set_slot_status(state, mon, 1, "2-1", STATUS_SHORT)
+    set_slot_note(state, mon, 1, "2-1", "보충 내용")
+
+    key, _note = pending_note_for_slot(state, 1, "tue", 1, "2-1")
+    clear_note(state, key)
+    assert pending_note_for_slot(state, 1, "tue", 1, "2-1") is None
+    assert slot_note(state, mon, 1, "2-1") is None
