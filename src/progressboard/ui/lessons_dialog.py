@@ -1,12 +1,15 @@
 """'진도 설정' 다이얼로그.
 
-1차시부터 마지막 차시까지 각 차시의 제목/내용을 입력한다.
+1차시부터 마지막 차시까지 각 차시의 제목/내용을 입력한다. 중간에 수업
+진도가 바뀌어 차시를 끼워 넣어야 할 때는 특정 차시를 선택한 뒤
+"+ 삽입"을 누르면 그 바로 뒤에 빈 차시가 추가되고, 그 뒤 차시 번호는
+자동으로 하나씩 밀린다.
 """
 
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 from typing import Callable
 
 from ..models import Lesson, Settings
@@ -46,6 +49,13 @@ class LessonsDialog(tk.Toplevel):
         self._listbox.pack(side="left", fill="y")
         scrollbar.pack(side="left", fill="y")
         self._listbox.bind("<<ListboxSelect>>", self._on_select)
+
+        list_btns = ttk.Frame(left)
+        list_btns.pack(fill="x", pady=(6, 0))
+        ttk.Button(list_btns, text="+ 삽입", command=self._insert_after_selected).pack(
+            side="left", padx=(0, 4)
+        )
+        ttk.Button(list_btns, text="- 삭제", command=self._delete_selected).pack(side="left")
 
         right = ttk.Frame(body, padding=(12, 0, 0, 0))
         right.pack(side="left", fill="both", expand=True)
@@ -108,6 +118,36 @@ class LessonsDialog(tk.Toplevel):
         self._load_index(selection[0])
         self._refresh_list()
         self._listbox.selection_set(selection[0])
+
+    def _select_index(self, index: int) -> None:
+        self._refresh_list()
+        self._listbox.selection_clear(0, "end")
+        self._listbox.selection_set(index)
+        self._listbox.see(index)
+        self._load_index(index)
+
+    def _insert_after_selected(self) -> None:
+        self._store_current()
+        insert_at = (self._current_index + 1) if self._current_index is not None else len(self._lessons)
+        self._lessons.insert(insert_at, Lesson())
+        self._select_index(insert_at)
+
+    def _delete_selected(self) -> None:
+        if self._current_index is None or not self._lessons:
+            return
+        if len(self._lessons) <= 1:
+            messagebox.showinfo("안내", "최소 1개의 차시는 있어야 합니다.", parent=self)
+            return
+        lesson = self._lessons[self._current_index]
+        label = lesson.title or f"{self._current_index + 1}차시"
+        if not messagebox.askyesno(
+            "차시 삭제",
+            f"'{label}'을(를) 삭제할까요? 이후 차시 번호가 하나씩 당겨집니다.",
+            parent=self,
+        ):
+            return
+        del self._lessons[self._current_index]
+        self._select_index(min(self._current_index, len(self._lessons) - 1))
 
     def _save(self) -> None:
         self._store_current()

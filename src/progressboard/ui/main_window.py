@@ -347,6 +347,7 @@ class MainWindow(tk.Tk):
     def open_lessons_dialog(self) -> None:
         def on_save(lessons) -> None:
             self.state.lessons = lessons
+            self.state.settings.total_lessons = len(lessons)  # 삽입/삭제로 늘거나 줄었을 수 있음
             self._save()
             self._refresh_grid()
 
